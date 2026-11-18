@@ -1,0 +1,20 @@
+fastapi==0.162.4
+uvicorn[standard]==0.54.0
+motor==3.7.1
+pymongo==4.19.0
+pydantic==2.13.5
+python-dotenv==1.2.3
+PyJWT==2.15.0
+bcrypt==5.0.0
+cryptography==50.0.1
+python-multipart==0.0.32
+reportlab==5.0.1
+pypdf==6.17.0
+openpyxl==3.1.5
+xlrd==2.0.2
+# Zona horaria America/Guayaquil en Windows (no trae la base de zonas del sistema)
+tzdata==2026.6
+
+# Desarrollo y pruebas
+pytest==9.1.1
+httpx==0.28.1

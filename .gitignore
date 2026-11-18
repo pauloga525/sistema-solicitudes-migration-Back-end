@@ -1,0 +1,35 @@
+# Secretos y configuración local (solo se versiona .env.example)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Respaldos, volcados y registros
+*.log
+*.dump
+*.archive
+*.bson
+dumps/
+respaldos/
+
+# Herramientas de asistentes y editores
+.claude/
+CLAUDE.md
+.impeccable/
+.idea/
+.vscode/
+
+# Sistema
+.DS_Store
+Thumbs.db
