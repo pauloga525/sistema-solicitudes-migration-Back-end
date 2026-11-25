@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.dependencies import AuthUser, client_ip, require_student
 from app.core.exceptions import AppError, BadRequest, NotFound
@@ -218,7 +218,27 @@ def _mine_out(r: dict) -> dict:
 @router.get("/requests")
 async def my_requests(user: AuthUser = Depends(require_student)):
     rows = await get_database()["requests"].find({"studentUserId": user.oid}).sort("createdAt", -1).to_list(200)
-    return to_json({"data": [_mine_out(r) for r in rows]})
+    from app.modules.teachers.service import evaluations_for_requests
+    ev = await evaluations_for_requests([r["_id"] for r in rows])
+    return to_json({"data": [{**_mine_out(r), "evaluations": ev.get(r["_id"], [])} for r in rows]})
+
+
+# ── avisos del estudiante (p. ej. evaluación programada por el docente) ──────
+@router.get("/notifications")
+async def my_notifications(user: AuthUser = Depends(require_student)):
+    from app.modules.teachers.service import notifications_for
+    return to_json(await notifications_for(user.oid, 50))
+
+
+class ReadIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    ids: list[str] | Literal["all"]
+
+
+@router.post("/notifications/read")
+async def read_notifications(body: ReadIn, user: AuthUser = Depends(require_student)):
+    from app.modules.teachers.service import mark_read
+    return {"updated": await mark_read(user.oid, body.ids)}
 
 
 @router.get("/subjects")
@@ -235,8 +255,19 @@ async def my_subjects(requestType: str = "proceso_mejora", user: AuthUser = Depe
     p = st.profile_out(prof)
     spec = specialty_of(p["course"], p["paralelo"])
     inactive = await svc.config_service.inactive_subjects(requestType, p["course"], spec)
-    return {"course": p["course"], "specialty": spec,
-            "subjects": [s for s in subjects_for(p["course"], p["paralelo"]) if s not in inactive]}
+    subjects = [s for s in subjects_for(p["course"], p["paralelo"]) if s not in inactive]
+    from app.modules.limits.service import current_period, subjects_used_in_trimester
+    period = await current_period()
+    used = await subjects_used_in_trimester(p["cedula"], requestType, period)
+    async for r in get_database()["requests"].find({"studentDni": p["cedula"], "requestType": requestType,
+                                                    "status": {"$in": ["pendiente", "en_revision"]}}, {"payload.subjects": 1}):
+        used.update((r.get("payload") or {}).get("subjects", []))  # también las que están en trámite
+    if (await get_database()["users"].find_one({"_id": user.oid}, {"testAccount": 1}) or {}).get("testAccount"):
+        from app.modules.curriculum import TEST_SUBJECT
+        subjects.append(TEST_SUBJECT)
+    # Las ya pedidas en el trimestre se informan aparte para que el formulario las muestre deshabilitadas.
+    return {"course": p["course"], "specialty": spec, "subjects": subjects,
+            "usedThisTrimester": [s for s in subjects if s in used], "trimester": period["trimestre"] if period else None}
 
 
 @router.get("/requests/quota")
@@ -285,6 +316,10 @@ async def _mine(user: AuthUser, id_: str) -> dict:
 
 @router.post("/requests/{id_}/cancel")
 async def cancel_mine(id_: str, request: Request, user: AuthUser = Depends(require_student)):
+    from app.core.config import get_settings
+    if not get_settings().student_can_cancel:
+        raise AppError(403, "Las solicitudes no se pueden cancelar desde la cuenta del estudiante. "
+                            "Si necesitas anularla, comunícate con la institución.", code="CANCEL_DISABLED")
     doc = await _mine(user, id_)
     if doc["status"] not in ACTIVE:
         raise AppError(409, "Solo puedes cancelar solicitudes pendientes o en revisión", code="INVALID_TRANSITION")

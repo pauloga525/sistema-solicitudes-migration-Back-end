@@ -26,6 +26,11 @@ CURRICULUM_SUBJECTS = tuple(sorted(CURRICULUM_SUBJECTS, key=_sort_key))
 ALL_SUBJECTS: tuple[str, ...] = CURRICULUM_SUBJECTS + tuple(s for s in ALLOWED_SUBJECTS if s not in CURRICULUM_SUBJECTS)
 
 
+# Materia ficticia para pruebas: no está en la malla ni en "Cursos y materias". Solo la ven las cuentas de
+# estudiante marcadas como "de prueba" por el SUPERADMIN, y solo se asigna a mano a un docente.
+TEST_SUBJECT = "Materia de prueba (sistema)"
+
+
 def specialty_of(course: str, paralelo: str | None) -> str | None:
     """Especialidad (solo bachillerato), deducida del paralelo."""
     return specialty_for_paralelo(paralelo or "") if course in BACH_COURSES else None

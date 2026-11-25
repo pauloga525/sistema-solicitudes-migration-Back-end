@@ -89,7 +89,15 @@ async def _active(request: Request) -> AuthUser:
 @router.get("", dependencies=[Depends(Throttle("RequestsController.findAll")), Depends(require_admin)])
 async def find_all(request: Request, svc: RequestsService = Depends(service)):
     filters: FilterRequestsDTO = validate_dto(FILTER_REQUESTS_SCHEMA, query_dict(request), FilterRequestsDTO)  # type: ignore[assignment]
-    return to_json(await svc.find_all(filters))
+    result = await svc.find_all(filters)
+    # Seguimiento docente por materia (programada, evaluado, no se presentó…), además del estado administrativo.
+    rows = result.get("data") if isinstance(result, dict) else None
+    if rows:
+        from app.modules.teachers.service import evaluation_summary
+        ev = await evaluation_summary(rows)
+        for r in rows:
+            r["evaluations"] = ev.get(str(r["_id"]), [])
+    return to_json(result)
 
 
 @router.get("/{id_}", dependencies=[Depends(Throttle("RequestsController.findOne"))])

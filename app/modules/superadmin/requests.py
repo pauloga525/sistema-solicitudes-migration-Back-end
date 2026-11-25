@@ -143,7 +143,10 @@ async def list_requests(page: int = 1, pageSize: int | None = None, q: dict = De
         q_all = {"$and": [{k: v for k, v in q_all["$and"][0].items() if k != "status"}, q_all["$and"][1]]}
     async for g in col.aggregate([{"$match": q_all}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
         by_status[g["_id"]] = g["n"]
-    return to_json({**paged([row_out(r, names) for r in rows], total, p, size), "byStatus": by_status})
+    from app.modules.teachers.service import evaluation_summary
+    ev = await evaluation_summary(rows)
+    return to_json({**paged([{**row_out(r, names), "evaluations": ev.get(str(r["_id"]), [])} for r in rows], total, p, size),
+                    "byStatus": by_status})
 
 
 @router.get("/staff")
@@ -202,6 +205,11 @@ async def _get(id_: str) -> dict[str, Any]:
     return r
 
 
+async def _evals(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    from app.modules.teachers.service import evaluation_summary
+    return await evaluation_summary(rows)
+
+
 @router.get("/{id_}")
 async def detail(id_: str, _: AuthUser = Depends(require_superadmin)):
     # Vista de supervisión: NO dispara la auto-aprobación (esa regla es de la bandeja del ADMIN).
@@ -211,6 +219,7 @@ async def detail(id_: str, _: AuthUser = Depends(require_superadmin)):
                                 "rejectedBy": r.get("rejectedBy"), "rejectedAt": r.get("rejectedAt"),
                                 "representativeDni": r.get("representativeDni"), "dueAtLocal": to_local(r.get("dueAt"))},
                     "history": await request_history(r["_id"]),
+                    "evaluations": (await _evals([r])).get(str(r["_id"]), []),
                     "allowedCorrections": superadmin_targets(r["status"])})
 
 
@@ -232,6 +241,43 @@ async def correct_status(id_: str, body: CorrectIn, request: Request, actor: Aut
     out = await workflow.update_with_event(r["_id"], {"status": r["status"]}, fields, ev)
     out.pop("pdfAccessToken", None)
     return to_json({"request": out, "history": await request_history(r["_id"])})
+
+
+class DeleteRequestIn(StrictModel):
+    reason: str = Field(min_length=10, max_length=500)
+    confirm: str = Field(min_length=3, max_length=40)  # número de la solicitud, para no borrar otra por error
+
+
+@router.post("/{id_}/delete")
+async def delete_request(id_: str, body: DeleteRequestIn, request: Request, actor: AuthUser = Depends(require_superadmin)):
+    """Elimina una solicitud de forma permanente (p. ej. pruebas o envíos por error).
+
+    Se borran la solicitud y lo que depende de ella en el panel docente (seguimiento y avisos). Al no existir,
+    deja de contar para el cupo de materias y los límites del estudiante. Se conservan su historial de eventos,
+    el registro de correos y, en la auditoría, una copia de sus datos principales.
+    """
+    r = await _get(id_)
+    if body.confirm.strip().upper() != str(r.get("requestNumber") or "").upper():
+        raise BadRequest("Escribe el número de la solicitud para confirmar la eliminación")
+    await enforce_rate_limit("SA_DELETE_REQUEST", actor.user_id, "Eliminaste muchas solicitudes seguidas. Espera un momento.")
+    db = get_database()
+    rid = r["_id"]
+    from app.database.connection import transaction
+    async with transaction() as session:
+        await db["teacher_tracking"].delete_many({"requestId": rid}, session=session)
+        await db["teacher_tracking_events"].delete_many({"requestId": rid}, session=session)
+        await db["notifications"].delete_many({"requestId": rid}, session=session)
+        res = await db["requests"].delete_one({"_id": rid, "status": r["status"]}, session=session)
+        if not res.deleted_count:
+            raise AppError(409, workflow.CONFLICT_MSG, code="STALE_STATE")
+    await log_request_event(rid, "REQUEST_DELETED", from_status=r["status"], actor_id=actor.user_id,
+                            actor_name=actor.name or actor.username, actor_role=actor.role, actor_ip=client_ip(request),
+                            comment=body.reason.strip())
+    await audit(actor, request, "REQUEST_DELETED", metadata={
+        "requestId": str(rid), "requestNumber": r.get("requestNumber"), "studentName": r.get("studentName"),
+        "course": r.get("course"), "paralelo": r.get("paralelo"), "subjects": (r.get("payload") or {}).get("subjects"),
+        "status": r.get("status"), "isTest": bool(r.get("isTest")), "reason": body.reason.strip()})
+    return {"deleted": True}
 
 
 @router.post("/{id_}/assign")

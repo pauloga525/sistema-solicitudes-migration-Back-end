@@ -269,10 +269,14 @@ def test_object_id_invalido_400(client, auth):
     assert client.get(f"/requests/{FAKE_ID}", headers=auth).status_code == 404
 
 
-def test_autoaprobacion_al_ver_detalle(client, student, aporte_activo, auth):
+def test_ver_detalle_no_aprueba(client, student, aporte_activo, auth):
     rid = student.post("/requests", json=make_request()).json()["_id"]
     r = client.get(f"/requests/{rid}", headers=auth)
-    assert r.json()["status"] == "aprobado"
+    assert r.json()["status"] == "en_revision"  # abrir solo visualiza
+    assert client.get(f"/requests/{rid}/pdf", headers=auth).status_code == 200
+    assert client.get(f"/requests/{rid}", headers=auth).json()["status"] == "en_revision"
+    r = client.patch(f"/requests/{rid}/status", headers=auth, json={"status": "aprobado"})
+    assert r.status_code == 200 and r.json()["status"] == "aprobado"
     # Máquina de estados (C5): un ADMIN ya no puede devolver una aprobada a pendiente; solo el SUPERADMIN corrige.
     r = client.patch(f"/requests/{rid}/status", headers=auth, json={"status": "pendiente"})
     assert r.status_code == 409 and r.json()["code"] == "INVALID_TRANSITION"
@@ -314,8 +318,8 @@ def test_pdf_acceso_por_token_y_admin(client, student, aporte_activo, auth):
     assert r.status_code == 200 and r.content[:5] == b"%PDF-"
     assert r.headers["content-disposition"] == f'attachment; filename="solicitud-{created["requestNumber"]}.pdf"'
     assert client.get(f"/requests/{other['_id']}/pdf", headers=auth).status_code == 200
-    # descargar el PDF también auto-aprueba (comportamiento del original)
-    assert client.get(f"/requests/{rid}", headers=auth).json()["status"] == "aprobado"
+    # descargar el PDF no cambia el estado
+    assert client.get(f"/requests/{rid}", headers=auth).json()["status"] == "en_revision"
 
 
 def test_pdf_contenido(client, student):

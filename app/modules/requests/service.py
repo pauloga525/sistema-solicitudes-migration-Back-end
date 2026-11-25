@@ -36,14 +36,14 @@ class RequestsService:
         self.plazos_service = plazos_service
 
     # ── creación ────────────────────────────────────────────────────────────
-    async def _validate_against_solicitud_config(self, dto: CreateRequestDTO) -> None:
+    async def _validate_against_solicitud_config(self, dto: CreateRequestDTO, allow_test: bool = False) -> None:
         config = await self.config_service.get_config(dto.requestType)
         active_courses = {c.get("name") for c in config.get("courses", []) if c.get("active") == 1}
         if dto.course not in active_courses:
             raise BadRequest(f'El curso "{dto.course}" no está disponible actualmente para este trámite.')
         # Solo las materias que el estudiante cursa (malla por curso y especialidad).
-        from app.modules.curriculum import specialty_of, subjects_for
-        own = subjects_for(dto.course, dto.paralelo)
+        from app.modules.curriculum import TEST_SUBJECT, specialty_of, subjects_for
+        own = subjects_for(dto.course, dto.paralelo) + ((TEST_SUBJECT,) if allow_test else ())
         foreign = [s for s in dto.payload["subjects"] if s not in own]
         if foreign:
             raise BadRequest(f"Las siguientes materias no corresponden a tu curso: {', '.join(foreign)}")
@@ -71,7 +71,7 @@ class RequestsService:
             raise BadRequest(f'El paralelo "{dto.paralelo}" no existe para el curso elegido.')
         metadata = REQUEST_TYPE_METADATA[dto.requestType]
         if metadata.uses_academic_catalog:
-            await self._validate_against_solicitud_config(dto)
+            await self._validate_against_solicitud_config(dto, allow_test=bool((extra or {}).get("isTest")))
         if metadata.uses_aporte_quota:
             await self._validate_against_aporte_quota(dto)
 
@@ -133,7 +133,7 @@ class RequestsService:
         if request is None:
             raise NotFound(f"Solicitud con id {id_} no encontrada")
         meta = REQUEST_TYPE_METADATA.get(request.get("requestType"))
-        # Auto-aprobación deliberada: la primera vez que se abre una solicitud en revisión.
+        # Auto-aprobación al abrir (solo si el tipo la tiene activada; proceso_mejora ya no).
         if meta and meta.auto_approve_on_view and request.get("status") == RequestStatus.EN_REVISION.value:
             updated = await self.requests.approve_if_status(
                 request["_id"], RequestStatus.EN_REVISION.value, RequestStatus.APROBADO.value)

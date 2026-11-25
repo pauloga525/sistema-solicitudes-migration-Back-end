@@ -25,6 +25,8 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "REGISTER_IP": (10, 60 * 60),
     "SA_CREATE_USER": (20, 60 * 60),
     "SA_RESET_PASS": (5, 60 * 60),
+    "SA_DELETE_REQUEST": (30, 60 * 60),
+    "SA_TEST_MAIL": (10, 15 * 60),
     "CHANGE_PASSWORD": (5, 15 * 60),
     "EXPORT": (10, 5 * 60),
     "SENSITIVE_VIEW": (120, 60 * 60),

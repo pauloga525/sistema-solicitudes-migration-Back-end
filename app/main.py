@@ -29,6 +29,8 @@ from app.modules.solicitud_config.router import router as solicitud_config_route
 from app.modules.students.router import router as students_router
 from app.modules.superadmin.router import router as superadmin_router
 from app.modules.system.router import router as system_router
+from app.modules.teachers.oversight import router as oversight_router
+from app.modules.teachers.router import router as teacher_router
 from app.modules.users.bootstrap import migrate_legacy_admins, seed_superadmin
 from app.seeds.admin_seed import seed_admin
 
@@ -71,7 +73,8 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     for router in (auth_router, requests_router, request_types_router, solicitud_config_router,
-                   plazos_router, padron_router, students_router, superadmin_router, system_router):
+                   plazos_router, padron_router, students_router, superadmin_router, system_router, teacher_router,
+                   oversight_router):
         app.include_router(router)
     return app
 

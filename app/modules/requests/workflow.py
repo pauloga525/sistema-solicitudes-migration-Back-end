@@ -62,6 +62,10 @@ async def update_with_event(oid: ObjectId, expected: dict[str, Any], set_fields:
     after["updatedAt"] = update["$set"]["updatedAt"]
     for k in unset_fields or []:
         after.pop(k, None)
+    new_status = set_fields.get("status")
+    if new_status in ("rechazado", "cancelado") and before.get("status") != new_status:
+        from app.modules.teachers.service import on_request_closed
+        await on_request_closed(after, new_status)
     return after
 
 
@@ -81,12 +85,25 @@ async def create_request(svc: RequestsService, dto: CreateRequestDTO, user: Auth
     async with limits.student_lock(dto.studentDni, dto.requestType):
         await limits.assert_within_deadline(dto.requestType, period, now)
         await limits.assert_within_limits(dto.studentDni, user.oid, dto.requestType, period, now)
+        # Una vez por materia y por trimestre (también si no se presentó o si la canceló).
+        used = await limits.subjects_used_in_trimester(dto.studentDni, dto.requestType, period)
+        repeated = [s for s in dto.payload["subjects"] if s in used]
+        if repeated:
+            raise AppError(400, f"Ya solicitaste la evaluación de mejora de {', '.join(repeated)} en el "
+                                f"{period['trimestre'] if period else 'trimestre'}. Solo se permite una vez por materia en cada "
+                                "trimestre; podrás volver a pedirla en el siguiente.", code="SUBJECT_USED_IN_TRIMESTER")
         extra: dict[str, Any] = {"studentUserId": user.oid, "assignedTo": None,
                                  "periodKey": period["key"] if period else None}
+        from app.database.connection import get_database
+        if (await get_database()["users"].find_one({"_id": user.oid}, {"testAccount": 1}) or {}).get("testAccount"):
+            extra["isTest"] = True  # cuenta de prueba: puede pedir la materia de prueba; la solicitud queda marcada
         days = (await get_settings_doc()).get("dueDaysDefault")
         extra["dueAt"] = now + timedelta(days=int(days)) if days else None
         doc = await svc.create(dto, extra=extra)
     initial = REQUEST_TYPE_METADATA[dto.requestType].initial_status.value
     await log_request_event(doc["_id"], "REQUEST_CREATED", to_status=initial, actor_id=user.user_id,
                             actor_name=dto.studentName, actor_role=user.role, actor_ip=ip)
+    from app.modules.teachers.service import notify_representative_created, on_request_created
+    await on_request_created(doc)  # aviso y correo a los docentes de cada materia (nunca falla la creación)
+    await notify_representative_created(doc)  # correo al representante con estudiante, curso, fecha y materias
     return doc

@@ -19,7 +19,8 @@ class RequestTypeMetadata:
     prefix: str
     initial_status: RequestStatus
     # Si True, abrir el detalle (o el PDF) aprueba automáticamente una solicitud en_revision.
-    # Decisión de negocio deliberada para proceso_mejora; no convertir en acción manual.
+    # Desactivado para proceso_mejora a pedido de la institución (nov. 2026): abrir solo visualiza y la
+    # administración aprueba o niega a mano. El mecanismo se conserva por si se vuelve a activar.
     auto_approve_on_view: bool
     uses_academic_catalog: bool
     uses_aporte_quota: bool
@@ -31,7 +32,7 @@ REQUEST_TYPE_METADATA: dict[str, RequestTypeMetadata] = {
         label="Evaluación de Mejora",
         prefix="PM",
         initial_status=RequestStatus.EN_REVISION,
-        auto_approve_on_view=True,
+        auto_approve_on_view=False,
         uses_academic_catalog=True,
         uses_aporte_quota=True,
         build_pdf_content=build_proceso_mejora_pdf_content,

@@ -8,9 +8,9 @@ from bson import ObjectId
 from app.database.connection import get_database
 from app.shared.utilities.dates import utcnow
 
-ROLES = ("STUDENT", "ADMIN", "SUPERADMIN")
+ROLES = ("STUDENT", "TEACHER", "ADMIN", "SUPERADMIN")
 STAFF_ROLES = ("ADMIN", "SUPERADMIN")
-ROLE_HOME = {"SUPERADMIN": "/superadmin/dashboard", "ADMIN": "/admin/dashboard", "STUDENT": "/estudiante"}
+ROLE_HOME = {"SUPERADMIN": "/superadmin/dashboard", "ADMIN": "/admin/dashboard", "TEACHER": "/docente", "STUDENT": "/estudiante"}
 
 
 def col():

@@ -25,7 +25,7 @@ STATUSES = ("pending", "granted", "dismissed")
 
 
 class GrantIn(StrictModel):
-    role: Literal["ADMIN", "SUPERADMIN"] = "ADMIN"
+    role: Literal["TEACHER", "ADMIN", "SUPERADMIN"] = "ADMIN"
     reason: str = Field(min_length=10, max_length=500)
 
 
@@ -78,6 +78,9 @@ async def grant(id_: str, body: GrantIn, request: Request, actor: AuthUser = Dep
                                 "passwordHash": None, "googleSub": r.get("googleSub"), "createdBy": actor.user_id})
     except DuplicateKeyError as exc:
         raise Conflict("Ya existe una cuenta con ese correo") from exc
+    if body.role == "TEACHER":
+        from app.modules.teachers.service import ensure_teacher_for_user
+        await ensure_teacher_for_user(u)
     await col().update_one({"_id": r["_id"]}, {"$set": {"status": "granted", "grantedRole": body.role, "userId": u["_id"],
                                                         "resolvedAt": utcnow(), "resolvedBy": actor.user_id}})
     await audit(actor, request, "USER_CREATED", target=u,

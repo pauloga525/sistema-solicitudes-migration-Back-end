@@ -16,6 +16,7 @@ os.environ.update({
     "CORS_ORIGINS": "http://localhost:5173",
     # Las pruebas usan cuentas con contraseña; el ingreso solo con Google se prueba aparte (test_google.py).
     "ALLOW_PASSWORD_LOGIN": "true",
+    "STUDENT_CAN_CANCEL": "true",  # las pruebas existentes cubren la cancelación; test_docentes prueba que se puede apagar
 })
 os.environ.pop("ADMIN_SEED_PASSWORD", None)
 os.environ.pop("NODE_ENV", None)
@@ -72,7 +73,9 @@ def _reset_actors(client):
 # Colecciones que cada prueba deja limpias (base de pruebas aislada; nunca la base real).
 PER_TEST = ("requests", "counters", "aniolectivos", "solicitudconfigs", "students", "request_events", "user_events",
             "rate_limits", "limit_locks", "request_limits", "limit_exceptions", "request_deadlines", "system_errors",
-            "student_profiles", "representatives", "student_representatives", "access_requests")
+            "student_profiles", "representatives", "student_representatives", "access_requests",
+            "teachers", "teacher_assignments", "teacher_tracking", "teacher_imports", "notifications", "email_outbox",
+            "teacher_tracking_events")
 
 
 @pytest.fixture(autouse=True)

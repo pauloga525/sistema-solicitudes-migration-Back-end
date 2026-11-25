@@ -51,8 +51,20 @@ class Settings:
     # Ingreso con usuario y contraseña. Apagado por defecto: el ingreso es solo con Google.
     # Encenderlo (ALLOW_PASSWORD_LOGIN=true) sirve para cuentas de prueba o de emergencia.
     allow_password_login: bool = False
+    # El estudiante puede cancelar sus solicitudes (desactivado: la institución lo pidió así; lo hace la administración).
+    student_can_cancel: bool = False
     # Los correos de estudiante terminan en "<sufijo>@dominio" (nombreapellido.est@uets.edu.ec).
     student_email_suffix: str = ".est"
+    # ── Correo saliente (Google Workspace: smtp.gmail.com:587 con contraseña de aplicación) ──
+    mail_smtp_host: str | None = None
+    mail_smtp_port: int = 587
+    mail_smtp_user: str | None = None
+    mail_smtp_password: str | None = None
+    mail_from: str | None = None
+    mail_from_name: str = "Sistema de Solicitudes UETS"
+    # Dirección pública del sistema, para los enlaces de los correos (https://solicitudes.uets.edu.ec).
+    mail_reply_to: str | None = None
+    public_url: str | None = None
     # ── Retención ──
     user_audit_retention_days: int = 730
     error_log_retention_days: int = 180
@@ -63,6 +75,10 @@ class Settings:
         local, _, domain = (email or "").strip().lower().partition("@")
         return domain == self.institutional_email_domain and local.endswith(self.student_email_suffix) \
             and len(local) > len(self.student_email_suffix)
+
+    @property
+    def mail_enabled(self) -> bool:
+        return bool(self.mail_smtp_host and self.mail_from)
 
     @property
     def is_production(self) -> bool:
@@ -113,6 +129,28 @@ def validate_env() -> None:
         sys.exit(1)
 
 
+def _env(*names: str) -> str:
+    """Primer valor no vacío entre varios nombres de variable (admite los nombres SMTP_* de otros sistemas)."""
+    return next(((os.environ.get(n) or "").strip() for n in names if (os.environ.get(n) or "").strip()), "")
+
+
+def _mail_settings() -> dict:
+    from email.utils import parseaddr
+    user = _env("MAIL_SMTP_USER", "SMTP_USER") or None
+    # MAIL_FROM acepta "correo" o "Nombre <correo>".
+    name, addr = parseaddr(_env("MAIL_FROM") or (user or ""))
+    reply_name, reply = parseaddr(_env("MAIL_REPLY_TO"))
+    return {
+        "mail_smtp_host": _env("MAIL_SMTP_HOST", "SMTP_HOST") or None,
+        "mail_smtp_port": int(_env("MAIL_SMTP_PORT", "SMTP_PORT") or 587),
+        "mail_smtp_user": user,
+        "mail_smtp_password": (os.environ.get("MAIL_SMTP_PASSWORD") or os.environ.get("SMTP_PASS") or None),
+        "mail_from": addr or None,
+        "mail_from_name": _env("MAIL_FROM_NAME") or name or "Sistema de Solicitudes UETS",
+        "mail_reply_to": reply or None,
+    }
+
+
 @lru_cache
 def get_settings() -> Settings:
     origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
@@ -133,7 +171,10 @@ def get_settings() -> Settings:
         google_client_id=(os.environ.get("GOOGLE_CLIENT_ID") or "").strip() or None,
         allow_password_registration=(os.environ.get("ALLOW_PASSWORD_REGISTRATION") or "true").lower() != "false",
         allow_password_login=(os.environ.get("ALLOW_PASSWORD_LOGIN") or "false").lower() in ("1", "true", "yes"),
+        student_can_cancel=(os.environ.get("STUDENT_CAN_CANCEL") or "false").lower() in ("1", "true", "yes"),
         student_email_suffix=(os.environ.get("STUDENT_EMAIL_SUFFIX") or ".est").strip().lower(),
+        **_mail_settings(),
+        public_url=(os.environ.get("PUBLIC_URL") or "").strip().rstrip("/") or None,
         user_audit_retention_days=int(os.environ.get("USER_AUDIT_RETENTION_DAYS") or 730),
         error_log_retention_days=int(os.environ.get("ERROR_LOG_RETENTION_DAYS") or 180),
     )

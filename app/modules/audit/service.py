@@ -18,12 +18,14 @@ log = logging.getLogger("app.audit")
 REQUEST_EVENT_LABELS = {
     "REQUEST_CREATED": "Solicitud creada",
     "AUTO_APPROVED": "Aprobada automáticamente al abrir el detalle",
+    "AUTO_APPROVED_ON_SCHEDULE": "Aprobada al programar la evaluación",
     "STATUS_CHANGED": "Estado cambiado",
     "STATUS_CORRECTED": "Estado corregido por SUPERADMIN",
     "CANCELLED_BY_STUDENT": "Cancelada por el estudiante",
     "ASSIGNED": "Responsable asignado",
     "DUE_SET": "Plazo de atención asignado",
     "DUE_CLEARED": "Plazo de atención retirado",
+    "REQUEST_DELETED": "Solicitud eliminada por SUPERADMIN",
 }
 
 USER_EVENT_LABELS = {
@@ -32,6 +34,10 @@ USER_EVENT_LABELS = {
     "PASSWORD_CHANGED": "Contraseña cambiada",
     "USER_CREATED": "Usuario creado", "USER_UPDATED": "Usuario actualizado", "USER_DEACTIVATED": "Usuario desactivado", "USER_DELETED": "Usuario eliminado", "ACCESS_REQUEST_DISMISSED": "Solicitud de acceso descartada",
     "SUBMISSION_WINDOW_UPDATED": "Fechas de envío actualizadas",
+    "TEACHERS_IMPORTED": "Docentes importados", "TEACHER_EMAIL_SET": "Correo de docente actualizado",
+    "TEACHER_ASSIGNMENT_ADDED": "Materia asignada a docente", "TEACHER_ASSIGNMENT_REMOVED": "Materia quitada a docente",
+    "STUDENT_TEST_ACCOUNT": "Cuenta de prueba (estudiante)", "REQUEST_DELETED": "Solicitud eliminada",
+    "MAIL_TEST": "Correo de prueba", "MAIL_RETRY": "Reintento de correos fallidos",
     "USER_REACTIVATED": "Usuario reactivado", "USER_PASSWORD_RESET": "Contraseña restablecida",
     "USER_ROLE_CHANGED": "Rol cambiado", "PRIVILEGE_ESCALATION_BLOCKED": "Intento de escalamiento bloqueado",
     "LINK_CREATED": "Representante vinculado", "LINK_REMOVED": "Representante desvinculado",
@@ -45,7 +51,7 @@ USER_EVENT_LABELS = {
     "PROFILE_UNLOCKED": "Edición de datos habilitada", "PROFILE_LOCKED": "Edición de datos bloqueada",
 }
 
-ROLE_LABELS = {"STUDENT": "Estudiante", "ADMIN": "Administrador", "SUPERADMIN": "Super Administrador", "SYSTEM": "Sistema"}
+ROLE_LABELS = {"STUDENT": "Estudiante", "TEACHER": "Docente", "ADMIN": "Administrador", "SUPERADMIN": "Super Administrador", "SYSTEM": "Sistema"}
 
 
 async def log_request_event(request_id: ObjectId, event_type: str, *, from_status: str | None = None,

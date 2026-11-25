@@ -425,9 +425,10 @@ def test_historial_para_admin(client, admin, aporte_activo):
                                        "payload": {"subjects": ["Computación"]}}).json()["_id"]
     assert a.get(f"/requests/{rid}/history").status_code == 403
     assert Actor(client).get(f"/requests/{rid}/history").status_code == 401
-    admin.get(f"/requests/{rid}")  # auto-aprobación
+    admin.get(f"/requests/{rid}")  # solo visualiza
+    admin.patch(f"/requests/{rid}/status", json={"status": "aprobado"})
     h = admin.get(f"/requests/{rid}/history").json()
-    assert [e["eventType"] for e in h] == ["REQUEST_CREATED", "AUTO_APPROVED"]
+    assert [e["eventType"] for e in h] == ["REQUEST_CREATED", "STATUS_CHANGED"]
 
 
 # ── formulario de datos del estudiante (nombres, apellidos, cédula, curso, paralelo/especialidad) ──

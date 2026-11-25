@@ -57,6 +57,17 @@ async def ensure_new_indexes(db: AsyncIOMotorDatabase) -> None:
                                               partialFilterExpression={"isActive": True})
     await db["request_deadlines"].create_index([("requestType", 1), ("periodKey", 1)], name="type_period_unique", unique=True)
     await db["system_errors"].create_index([("resolved", 1), ("createdAt", -1)], name="resolved_createdAt")
+    # Panel docente
+    await db["teachers"].create_index([("nameKey", 1)], name="nameKey_unique", unique=True)
+    await db["teachers"].create_index([("email", 1)], name="email", sparse=True)
+    await db["teacher_assignments"].create_index([("course", 1), ("paralelo", 1), ("subject", 1), ("active", 1)], name="course_par_subject")
+    await db["teacher_assignments"].create_index([("teacherId", 1), ("active", 1)], name="teacher_active")
+    await db["teacher_tracking"].create_index([("requestId", 1), ("subject", 1)], name="request_subject_unique", unique=True)
+    await db["teacher_tracking_events"].create_index([("requestId", 1), ("createdAt", 1)], name="request_created")
+    await db["email_outbox"].create_index([("context.requestId", 1)], name="context_request")
+    await db["notifications"].create_index([("requestId", 1)], name="request")
+    await db["notifications"].create_index([("userId", 1), ("read", 1), ("createdAt", -1)], name="user_read_created")
+    await db["email_outbox"].create_index([("status", 1), ("createdAt", -1)], name="status_created")
     # Colaboradores (correo sin ".est") que intentaron ingresar: el SUPERADMIN puede darles acceso.
     await db["access_requests"].create_index([("email", 1)], name="email_unique", unique=True)
     await db["access_requests"].create_index([("status", 1), ("lastSeenAt", -1)], name="status_lastSeen")

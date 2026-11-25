@@ -17,6 +17,7 @@ from app.modules.audit.service import ROLE_LABELS, USER_EVENT_LABELS
 from app.modules.auth.schemas import StrictModel
 from app.modules.students import service as st
 from app.modules.superadmin.common import audit, page_args, paged
+from app.modules.teachers.service import ensure_teacher_for_user, release_teacher_role
 from app.modules.system.service import date_range, enforce_rate_limit
 from app.modules.users import repository as users
 from app.shared.crypto.field_encryption import hash_field
@@ -25,7 +26,7 @@ from app.shared.utilities.dates import utcnow
 from app.shared.validators.object_id import parse_object_id
 
 router = APIRouter(prefix="/users")
-RoleLit = Literal["STUDENT", "ADMIN", "SUPERADMIN"]
+RoleLit = Literal["STUDENT", "TEACHER", "ADMIN", "SUPERADMIN"]
 ACCESS_EVENTS = ["LOGIN_SUCCESS", "LOGIN_FAILED", "LOGOUT", "PASSWORD_CHANGED", "USER_CREATED", "USER_UPDATED",
                  "USER_DEACTIVATED", "USER_REACTIVATED", "USER_DELETED", "USER_PASSWORD_RESET", "USER_ROLE_CHANGED",
                  "PRIVILEGE_ESCALATION_BLOCKED", "STUDENT_REGISTERED"]
@@ -97,6 +98,8 @@ async def list_users(role: str | None = None, status: str | None = None, q: str 
     query: dict[str, Any] = {}
     if role in users.ROLES:
         query["role"] = role
+    elif role == "staff":  # página "Administradores": administradores y super administradores
+        query["role"] = {"$in": list(users.STAFF_ROLES)}
     if status in ("active", "inactive"):
         query["isActive"] = status == "active"
     if status == "pending":
@@ -109,7 +112,7 @@ async def list_users(role: str | None = None, status: str | None = None, q: str 
     # Orden: SUPERADMIN, ADMIN, STUDENT; dentro de cada rol, los más recientes primero.
     rows = await col.aggregate([
         {"$match": query},
-        {"$addFields": {"_ro": {"$indexOfArray": [["SUPERADMIN", "ADMIN", "STUDENT"], "$role"]}}},
+        {"$addFields": {"_ro": {"$indexOfArray": [["SUPERADMIN", "ADMIN", "TEACHER", "STUDENT"], "$role"]}}},
         {"$sort": {"_ro": 1, "createdAt": -1}}, {"$skip": (p - 1) * size}, {"$limit": size},
         {"$project": {"passwordHash": 0, "_ro": 0}}]).to_list(size)
     return to_json(paged([user_row(u) for u in rows], total, p, size))
@@ -147,6 +150,8 @@ async def create_user(body: CreateUserIn, request: Request, actor: AuthUser = De
     except DuplicateKeyError as exc:
         raise Conflict("Ya existe un usuario con ese correo o nombre de usuario") from exc
     await audit(actor, request, "USER_CREATED", target=u, metadata={"role": body.role})
+    if body.role == "TEACHER":
+        await ensure_teacher_for_user(u)
     if body.role == "SUPERADMIN":
         await audit(actor, request, "USER_ROLE_CHANGED", target=u, metadata={"from": None, "to": "SUPERADMIN", "escalation": True})
     # La contraseña temporal se muestra UNA vez; no se guarda en claro ni se registra.
@@ -187,6 +192,8 @@ async def change_role(id_: str, body: RoleIn, request: Request, actor: AuthUser 
         require_not_self(actor.user_id, str(u["_id"]))
     if u["role"] == body.role:
         raise BadRequest("El usuario ya tiene ese rol")
+    if body.role == "TEACHER" and get_settings().is_student_email(u.get("email") or ""):
+        raise BadRequest("Una cuenta de estudiante (.est) no puede tener el rol de docente.")
     if body.role != "SUPERADMIN":
         await _assert_not_last_sa(u)
     async with transaction() as s:
@@ -197,11 +204,15 @@ async def change_role(id_: str, body: RoleIn, request: Request, actor: AuthUser 
             raise AppError(409, "El usuario cambió mientras lo editabas. Recarga.", code="STALE_STATE")
         await audit(actor, request, "USER_ROLE_CHANGED", target=u, session=s,
                     metadata={"from": u["role"], "to": body.role, "reason": body.reason,
-                              "escalation": body.role == "SUPERADMIN" or (u["role"] == "STUDENT" and body.role == "ADMIN")})
+                              "escalation": body.role == "SUPERADMIN" or (u["role"] in ("STUDENT", "TEACHER") and body.role == "ADMIN")})
     if body.role != "SUPERADMIN" and u["role"] == "SUPERADMIN" and await users.count_active_superadmins() == 0:
         # Carrera entre dos degradaciones simultáneas: se revierte la nuestra.
         await users.col().update_one({"_id": u["_id"]}, {"$set": {"role": "SUPERADMIN"}})
         raise AppError(409, LAST_SA, code="LAST_SUPERADMIN")
+    if body.role == "TEACHER":
+        await ensure_teacher_for_user(u)
+    elif u["role"] == "TEACHER":
+        await release_teacher_role(u)
     return to_json(user_row(await users.get(u["_id"])))
 
 

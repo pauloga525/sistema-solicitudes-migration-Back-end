@@ -129,13 +129,32 @@ async def student_detail(id_: str, request: Request, actor: AuthUser = Depends(r
     reps = await st.links_of(oid)
     return to_json({"user": {"id": id_, "email": u.get("email"), "isActive": u.get("isActive", True),
                              "lastLoginAt": u.get("lastLoginAt"), "createdAt": u.get("createdAt"),
-                             "forcePasswordChange": bool(u.get("forcePasswordChange"))},
+                             "forcePasswordChange": bool(u.get("forcePasswordChange")),
+                             "testAccount": bool(u.get("testAccount"))},
                     "profile": st.profile_out(prof), "representatives": reps,
                     "locks": {"student": st.student_data_locked(prof), "representative": st.rep_data_locked(prof, any(r["isPrimary"] for r in reps)),
                               "unlockedAt": prof and prof.get("unlockedAt"), "unlockReason": prof and prof.get("unlockReason")},
                     "requestsByStatus": by_status,
                     "requests": [{k: r.get(k) for k in ("_id", "requestNumber", "requestType", "status", "createdAt", "dueAt")}
                                  for r in reqs[:20]]})
+
+
+class TestAccountIn(StrictModel):
+    enabled: bool
+
+
+@router.post("/students/{id_}/test-account")
+async def set_test_account(id_: str, body: TestAccountIn, request: Request, actor: AuthUser = Depends(require_superadmin)):
+    """Marca una cuenta de estudiante como de prueba: puede pedir la "Materia de prueba (sistema)" y sus
+    solicitudes quedan marcadas como prueba. No cambia nada más de la cuenta."""
+    oid = parse_object_id(id_)
+    res = await get_database()["users"].update_one({"_id": oid, "role": "STUDENT"},
+                                                   {"$set": {"testAccount": body.enabled, "updatedAt": utcnow()}})
+    if not res.matched_count:
+        raise NotFound("Estudiante no encontrado")
+    u = await get_database()["users"].find_one({"_id": oid}, {"email": 1, "role": 1})
+    await audit(actor, request, "STUDENT_TEST_ACCOUNT", target=u, metadata={"enabled": body.enabled})
+    return {"testAccount": body.enabled}
 
 
 @router.post("/students/{id_}/unlock")

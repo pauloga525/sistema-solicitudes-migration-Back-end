@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.modules.catalog import ALLOWED_SUBJECTS
-from app.modules.curriculum import subjects_for
+from app.modules.curriculum import TEST_SUBJECT, subjects_for
 from app.shared.pdf.pdfkit_compat import PdfkitDocument, Run
 
 PW = 595.28
@@ -57,6 +57,8 @@ def build_proceso_mejora_pdf_content(request: dict[str, Any]) -> bytes:
     ], ML, y, width=CW, line_gap=4) + 12
 
     own = subjects_for(str(request.get("course", "")), str(request.get("paralelo", "")))
+    if TEST_SUBJECT in selected:
+        own = own + (TEST_SUBJECT,)
     ordered = [s for s in own if s in selected] + sorted(s for s in selected if s not in own)
 
     # Nota sobre materias (itálica, 10 pt): solo si alguna de las elegidas se evalúa con examen.

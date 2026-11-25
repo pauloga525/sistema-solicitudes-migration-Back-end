@@ -7,7 +7,7 @@ from app.modules.catalog import (
     COURSES, PARALELOS, REQUEST_STATUSES, REQUEST_TYPES,
     CourseLiteral, ParaleloLiteral, RequestStatusLiteral, RequestTypeLiteral,
 )
-from app.modules.curriculum import ALL_SUBJECTS
+from app.modules.curriculum import ALL_SUBJECTS, TEST_SUBJECT
 from app.shared.validators import class_validator as cv
 from app.shared.validators.cedula import validate_ecuadorian_dni, validate_person_name
 
@@ -44,7 +44,7 @@ class FilterRequestsDTO(StrictModel):
 
 # create-request.dto.ts → ProcesoMejoraPayloadDto: @IsArray @IsEnum(each) @ArrayMinSize(1)
 PROCESO_MEJORA_PAYLOAD_SCHEMA = cv.Schema((
-    cv.Field("subjects", (cv.is_array(), cv.is_enum_each_of_array_constant(ALL_SUBJECTS), cv.array_min_size(1))),
+    cv.Field("subjects", (cv.is_array(), cv.is_enum_each_of_array_constant(ALL_SUBJECTS + (TEST_SUBJECT,)), cv.array_min_size(1))),
 ))
 
 # Qué esquema valida `payload` según `requestType` (PAYLOAD_DTO_BY_TYPE del original).

@@ -92,6 +92,27 @@ async def period_for_request(request: dict[str, Any]) -> dict[str, Any] | None:
     return next((p for p in periods if p["startDate"] <= at <= p["endDate"]), None)
 
 
+def trimester_range(period: dict[str, Any], periods: list[dict[str, Any]]) -> tuple[datetime, datetime]:
+    """Inicio y fin del trimestre al que pertenece un aporte (desde el primer aporte hasta el último)."""
+    anio, tri = period["key"].split("|")[:2]
+    same = [p for p in periods if p["key"].split("|")[:2] == [anio, tri]]
+    return min(p["startDate"] for p in same), max(p["endDate"] for p in same)
+
+
+async def subjects_used_in_trimester(student_dni: str, request_type: str, period: dict[str, Any] | None) -> set[str]:
+    """Materias que el estudiante ya pidió en el trimestre en solicitudes aprobadas o canceladas.
+    Las activas (pendiente, en revisión) ya las frena la regla original de duplicados (409); las rechazadas no cuentan."""
+    if not period:
+        return set()
+    start, end = trimester_range(period, await list_periods())
+    used: set[str] = set()
+    async for r in get_database()["requests"].find(
+            {"studentDni": student_dni, "requestType": request_type, "status": {"$in": ["aprobado", "cancelado"]},
+             "createdAt": {"$gte": start, "$lte": end}}, {"payload.subjects": 1}):
+        used.update((r.get("payload") or {}).get("subjects", []))
+    return used
+
+
 async def find_period(key: str) -> dict[str, Any] | None:
     return next((p for p in await list_periods() if p["key"] == key), None)
 

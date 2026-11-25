@@ -26,12 +26,19 @@ class UploadedFile:
 
 async def read_single_file(request: Request, field: str, max_size: int, allowed_ext: re.Pattern,
                            ext_error: str) -> UploadedFile | None:
+    files = await read_files(request, (field,), max_size, allowed_ext, ext_error)
+    return None if files is None else files.get(field)
+
+
+async def read_files(request: Request, fields: tuple[str, ...], max_size: int, allowed_ext: re.Pattern,
+                     ext_error: str) -> dict[str, UploadedFile] | None:
+    """Varios archivos (uno por campo), todos en memoria. None si la petición no es multipart."""
     ctype, params = parse_options_header(request.headers.get("content-type", ""))
     if ctype != b"multipart/form-data" or b"boundary" not in params:
         return None  # multer ignora peticiones no multipart → "No se recibió ningún archivo."
 
     state: dict = {"headers": {}, "hfield": b"", "hvalue": b"", "current": None, "text_bytes": 0}
-    result: dict = {"file": None}
+    result: dict[str, UploadedFile] = {}
     errors: list[Exception] = []
 
     def on_part_begin():
@@ -58,13 +65,13 @@ async def read_single_file(request: Request, field: str, max_size: int, allowed_
             state["current"] = {"kind": "text", "size": 0}
             return
         fname = filename.decode("utf-8", "replace")
-        if name != field or result["file"] is not None:
+        if name not in fields or name in result:
             errors.append(BadRequest(f"Unexpected field - {name}"))
             return
         if not allowed_ext.search(fname):
             errors.append(BadRequest(ext_error))
             return
-        state["current"] = {"kind": "file", "filename": fname, "buf": bytearray()}
+        state["current"] = {"kind": "file", "field": name, "filename": fname, "buf": bytearray()}
 
     def on_part_data(data, start, end):
         cur = state["current"]
@@ -83,7 +90,7 @@ async def read_single_file(request: Request, field: str, max_size: int, allowed_
     def on_part_end():
         cur = state["current"]
         if not errors and cur is not None and cur["kind"] == "file":
-            result["file"] = UploadedFile(cur["filename"], bytes(cur["buf"]))
+            result[cur["field"]] = UploadedFile(cur["filename"], bytes(cur["buf"]))
         state["current"] = None
 
     parser = MultipartParser(params[b"boundary"], callbacks={
@@ -98,4 +105,4 @@ async def read_single_file(request: Request, field: str, max_size: int, allowed_
     parser.finalize()
     if errors:
         raise errors[0]
-    return result["file"]
+    return result

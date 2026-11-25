@@ -157,6 +157,7 @@ def require_role(*roles: str):
 
 require_superadmin = require_role("SUPERADMIN")
 require_student = require_role("STUDENT")
+require_teacher = require_role("TEACHER")
 
 
 async def require_admin(request: Request) -> AuthUser:
