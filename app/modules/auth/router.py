@@ -36,9 +36,13 @@ MIN_PASSWORD, MAX_PASSWORD = 10, 128
 BCRYPT_COST_CHANGE = 10
 
 
-def ensure_csrf(request: Request, response: Response) -> None:
-    if not request.cookies.get(CSRF_COOKIE):
-        set_csrf_cookie(response, new_csrf_token())
+def ensure_csrf(request: Request, response: Response) -> str:
+    """Devuelve el token CSRF vigente; si el navegador no lo tiene, emite uno nuevo."""
+    token = request.cookies.get(CSRF_COOKIE)
+    if not token:
+        token = new_csrf_token()
+        set_csrf_cookie(response, token)
+    return token
 
 
 def user_out(u: dict | AuthUser | None) -> dict | None:
@@ -73,7 +77,7 @@ def validate_new_password(new: str, confirm: str, email: str | None = None, cedu
 
 @router.get("/session")
 async def session(request: Request, response: Response, user: AuthUser | None = Depends(optional_user)):
-    ensure_csrf(request, response)
+    csrf = ensure_csrf(request, response)
     m = await get_maintenance()
     out = user_out(user)
     if out and user and user.role == "STUDENT":
@@ -83,7 +87,10 @@ async def session(request: Request, response: Response, user: AuthUser | None = 
     return {"user": out, "maintenance": {"enabled": m["enabled"], "message": m["message"]},
             "emailDomain": s.institutional_email_domain, "googleClientId": s.google_client_id,
             "passwordRegistration": s.allow_password_registration and s.allow_password_login,
-            "passwordLogin": s.allow_password_login, "studentEmailSuffix": s.student_email_suffix}
+            "passwordLogin": s.allow_password_login, "studentEmailSuffix": s.student_email_suffix,
+            # Para frontends en otro dominio, que no pueden leer la cookie uets_csrf (CORS impide que
+            # un origen no autorizado lea esta respuesta).
+            "csrfToken": csrf}
 
 
 @router.post("/login", status_code=201, dependencies=[Depends(Throttle("AuthController.login", 5))])

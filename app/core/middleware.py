@@ -21,18 +21,21 @@ SECURITY_HEADERS = {
 def set_session_cookie(response: Response, token: str) -> None:
     s = get_settings()
     response.set_cookie(SESSION_COOKIE, token, max_age=s.session_max_age, httponly=True, secure=s.cookie_secure,
-                        samesite="lax", path="/")
+                        samesite=s.cookie_samesite, path="/")
 
 
 def clear_session_cookie(response: Response) -> None:
     s = get_settings()
-    response.delete_cookie(SESSION_COOKIE, path="/", secure=s.cookie_secure, httponly=True, samesite="lax")
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=s.cookie_secure, httponly=True, samesite=s.cookie_samesite)
 
 
 def set_csrf_cookie(response: Response, token: str) -> None:
     s = get_settings()
-    # Legible por el frontend (patrón de doble envío); SameSite estricto.
-    response.set_cookie(CSRF_COOKIE, token, httponly=False, secure=s.cookie_secure, samesite="strict", path="/")
+    # Patrón de doble envío. Mismo sitio: SameSite estricto y el frontend lee la cookie.
+    # Frontend en otro dominio (COOKIE_SAMESITE=none): la cookie debe viajar entre sitios y el
+    # frontend recibe el valor en `csrfToken` de GET /auth/session (no puede leer cookies ajenas).
+    samesite = "none" if s.cookie_samesite == "none" else "strict"
+    response.set_cookie(CSRF_COOKIE, token, httponly=False, secure=s.cookie_secure, samesite=samesite, path="/")
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):

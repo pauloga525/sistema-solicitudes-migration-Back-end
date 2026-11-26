@@ -40,6 +40,9 @@ class Settings:
     session_absolute_max_s: int = 12 * 60 * 60  # duración absoluta desde el login
     session_recheck_s: int = 60                 # revalidación contra la base
     cookie_secure: bool = False
+    # "lax": frontend y backend en el mismo sitio (por defecto).
+    # "none": frontend en otro dominio (p. ej. academico.uets.edu.ec → API en nip.io). Obliga a Secure.
+    cookie_samesite: str = "lax"
     # ── Estudiantes / SUPERADMIN ──
     institutional_email_domain: str = "uets.edu.ec"
     superadmin_seed_email: str = "superadmin@uets.edu.ec"
@@ -154,6 +157,10 @@ def _mail_settings() -> dict:
 @lru_cache
 def get_settings() -> Settings:
     origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+    samesite = (os.environ.get("COOKIE_SAMESITE") or "lax").strip().lower()
+    if samesite not in ("lax", "none"):
+        samesite = "lax"
+    cookie_secure = (os.environ.get("COOKIE_SECURE") or ("true" if os.environ.get("NODE_ENV") == "production" else "false")).lower() == "true"
     return Settings(
         port=int(os.environ.get("PORT") or 3000),
         mongodb_uri=os.environ.get("MONGODB_URI") or "mongodb://localhost:27017/sistema_solicitudes",
@@ -164,7 +171,9 @@ def get_settings() -> Settings:
         cors_origins=origins or list(DEFAULT_CORS_ORIGINS),
         node_env=os.environ.get("NODE_ENV", ""),
         trust_proxy=os.environ.get("TRUST_PROXY", "").lower() in ("1", "true", "yes"),
-        cookie_secure=(os.environ.get("COOKIE_SECURE") or ("true" if os.environ.get("NODE_ENV") == "production" else "false")).lower() == "true",
+        # Los navegadores rechazan SameSite=None sin Secure.
+        cookie_secure=cookie_secure or samesite == "none",
+        cookie_samesite=samesite,
         institutional_email_domain=(os.environ.get("INSTITUTIONAL_EMAIL_DOMAIN") or "uets.edu.ec").lower().lstrip("@"),
         superadmin_seed_email=(os.environ.get("SUPERADMIN_SEED_EMAIL") or "superadmin@uets.edu.ec").lower(),
         superadmin_seed_password=os.environ.get("SUPERADMIN_SEED_PASSWORD") or None,
