@@ -16,7 +16,8 @@ os.environ.update({
     "CORS_ORIGINS": "http://localhost:5173",
     # Las pruebas usan cuentas con contraseña; el ingreso solo con Google se prueba aparte (test_google.py).
     "ALLOW_PASSWORD_LOGIN": "true",
-    "STUDENT_CAN_CANCEL": "true",  # las pruebas existentes cubren la cancelación; test_docentes prueba que se puede apagar
+    "STUDENT_CAN_CANCEL": "true",
+    "STAFF_TEMP_PASSWORD": "true",  # las pruebas antiguas cubren la contraseña temporal; test_acceso prueba Google  # las pruebas existentes cubren la cancelación; test_docentes prueba que se puede apagar
 })
 os.environ.pop("ADMIN_SEED_PASSWORD", None)
 os.environ.pop("NODE_ENV", None)

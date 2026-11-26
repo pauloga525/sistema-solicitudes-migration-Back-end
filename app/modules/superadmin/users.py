@@ -71,7 +71,9 @@ def _institutional(email: str) -> str:
 
 
 def user_row(u: dict[str, Any]) -> dict[str, Any]:
-    return {"id": str(u["_id"]), "role": u["role"], "roleLabel": ROLE_LABELS.get(u["role"], u["role"]),
+    roles = users.effective_roles(u)
+    return {"id": str(u["_id"]), "role": u["role"], "roleLabel": " + ".join(ROLE_LABELS.get(r, r) for r in roles),
+            "roles": roles, "extraRoles": roles[1:],
             "email": u.get("email"), "username": u.get("username"), "name": u.get("name"),
             "isActive": u.get("isActive", True), "forcePasswordChange": bool(u.get("forcePasswordChange")),
             "tempPasswordExpiresAt": u.get("tempPasswordExpiresAt"), "lastLoginAt": u.get("lastLoginAt"),
@@ -98,8 +100,8 @@ async def list_users(role: str | None = None, status: str | None = None, q: str 
     query: dict[str, Any] = {}
     if role in users.ROLES:
         query["role"] = role
-    elif role == "staff":  # página "Administradores": administradores y super administradores
-        query["role"] = {"$in": list(users.STAFF_ROLES)}
+    elif role == "staff":  # página "Administradores": administradores y super administradores (también multirol)
+        query["$and"] = [{"$or": [{"role": {"$in": list(users.STAFF_ROLES)}}, {"extraRoles": "ADMIN"}]}]
     if status in ("active", "inactive"):
         query["isActive"] = status == "active"
     if status == "pending":
@@ -139,10 +141,11 @@ async def create_user(body: CreateUserIn, request: Request, actor: AuthUser = De
     h = hash_field(body.cedula)
     if await users.col().find_one({"cedulaHash": h}, {"_id": 1}) or await get_database()["student_profiles"].find_one({"cedulaHash": h}, {"_id": 1}):
         raise Conflict("Esa cédula ya pertenece a otra cuenta")
-    if get_settings().allow_password_login:
-        temp, pw = issue_temp_password()
+    s = get_settings()
+    if s.allow_password_login and s.staff_temp_password and body.role != "STUDENT":
+        temp, pw = issue_temp_password()  # solo en pruebas (STAFF_TEMP_PASSWORD=true)
     else:
-        # Solo Google: la persona ingresa con su cuenta institucional; no hay contraseña temporal.
+        # Ingreso con Google: al entrar con ese correo institucional la cuenta se vincula sola; no hay contraseña.
         temp, pw = None, {"passwordHash": None, "forcePasswordChange": False, "tempPasswordExpiresAt": None}
     try:
         u = await users.insert({"role": body.role, "email": email, "username": body.username or None, "name": name,
@@ -197,8 +200,11 @@ async def change_role(id_: str, body: RoleIn, request: Request, actor: AuthUser 
     if body.role != "SUPERADMIN":
         await _assert_not_last_sa(u)
     async with transaction() as s:
+        # «Cambiar rol» reemplaza el rol principal; los roles adicionales se conservan (salvo para estudiantes).
+        extras = [] if body.role == "STUDENT" else [r for r in users.effective_roles(u)[1:] if r != body.role]
         res = await users.col().update_one({"_id": u["_id"], "role": u["role"]},
-                                           {"$set": {"role": body.role, "updatedAt": utcnow()}, "$inc": {"sessionVersion": 1}},
+                                           {"$set": {"role": body.role, "extraRoles": extras, "updatedAt": utcnow()},
+                                            "$inc": {"sessionVersion": 1}},
                                            session=s)
         if res.matched_count == 0:
             raise AppError(409, "El usuario cambió mientras lo editabas. Recarga.", code="STALE_STATE")
@@ -209,11 +215,58 @@ async def change_role(id_: str, body: RoleIn, request: Request, actor: AuthUser 
         # Carrera entre dos degradaciones simultáneas: se revierte la nuestra.
         await users.col().update_one({"_id": u["_id"]}, {"$set": {"role": "SUPERADMIN"}})
         raise AppError(409, LAST_SA, code="LAST_SUPERADMIN")
-    if body.role == "TEACHER":
-        await ensure_teacher_for_user(u)
-    elif u["role"] == "TEACHER":
-        await release_teacher_role(u)
+    fresh = await users.get(u["_id"])
+    if "TEACHER" in users.effective_roles(fresh):
+        await ensure_teacher_for_user(fresh)
+    elif "TEACHER" in users.effective_roles(u):
+        await release_teacher_role(fresh)
     return to_json(user_row(await users.get(u["_id"])))
+
+
+class RolesIn(StrictModel):
+    roles: list[Literal["TEACHER", "ADMIN", "SUPERADMIN"]] = Field(min_length=1, max_length=3)
+    reason: str = Field(min_length=10, max_length=500)
+
+
+ROLE_RANK = ("SUPERADMIN", "ADMIN", "TEACHER")
+
+
+@router.post("/{id_}/roles")
+async def set_roles(id_: str, body: RolesIn, request: Request, actor: AuthUser = Depends(require_superadmin)):
+    """Multirol del personal: p. ej. Administrador + Docente. El rol principal es el de más jerarquía (define la
+    pantalla de inicio); los demás se suman. La super administración se da o se quita con «Cambiar rol»."""
+    u = await _target(id_)
+    if actor.user_id == str(u["_id"]):
+        await audit(actor, request, "PRIVILEGE_ESCALATION_BLOCKED", target=u, result="FAILURE", metadata={"roles": body.roles})
+        require_not_self(actor.user_id, str(u["_id"]))
+    if u["role"] == "STUDENT":
+        raise BadRequest("Una cuenta de estudiante no puede tener roles de personal.")
+    wanted = set(body.roles)
+    if ("SUPERADMIN" in wanted) != (u["role"] == "SUPERADMIN"):
+        raise BadRequest("La super administración se da o se quita con «Cambiar rol».")
+    if "TEACHER" in wanted and get_settings().is_student_email(u.get("email") or ""):
+        raise BadRequest("Una cuenta de estudiante (.est) no puede tener el rol de docente.")
+    primary = next(r for r in ROLE_RANK if r in wanted)
+    extras = [r for r in ("ADMIN", "TEACHER") if r in wanted and r != primary]
+    before = users.effective_roles(u)
+    if before == [primary, *extras]:
+        raise BadRequest("La cuenta ya tiene esos roles")
+    upd: dict[str, Any] = {"$set": {"role": primary, "extraRoles": extras, "updatedAt": utcnow()}}
+    if primary != u["role"]:
+        upd["$inc"] = {"sessionVersion": 1}  # cambia su pantalla de inicio: vuelve a ingresar
+    res = await users.col().update_one({"_id": u["_id"], "role": u["role"]}, upd)
+    if res.matched_count == 0:
+        raise AppError(409, "El usuario cambió mientras lo editabas. Recarga.", code="STALE_STATE")
+    fresh = await users.get(u["_id"])
+    after = users.effective_roles(fresh)
+    if "TEACHER" in after:
+        await ensure_teacher_for_user(fresh)
+    elif "TEACHER" in before:
+        await release_teacher_role(fresh)
+    await audit(actor, request, "USER_ROLE_CHANGED", target=u, metadata={
+        "from": "+".join(before), "to": "+".join(after), "reason": body.reason.strip(),
+        "escalation": "ADMIN" in after and "ADMIN" not in before and u["role"] != "SUPERADMIN"})
+    return to_json(user_row(fresh))
 
 
 @router.post("/{id_}/deactivate")

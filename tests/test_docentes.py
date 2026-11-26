@@ -468,3 +468,56 @@ def test_reglas_del_seguimiento_y_trimestre(client, superadmin, admin, google, a
     assert r.status_code == 400 and r.json()["code"] == "SUBJECT_USED_IN_TRIMESTER", r.text
     # otra materia sí
     assert st.post("/me/requests", json={**body, "payload": {"subjects": ["Inglés"]}}).status_code == 201
+
+
+def test_multirol_admin_y_docente(client, superadmin, google, aporte_activo, mongo):
+    from tests.test_google import token as gtoken
+    r = superadmin.post("/superadmin/users", json={"email": "vice@uets.edu.ec", "name": "Vicerrectora De Prueba",
+                                                   "cedula": "0109876540", "role": "ADMIN"})
+    assert r.status_code == 201
+    uid = r.json()["user"]["id"]
+    r = superadmin.post(f"/superadmin/users/{uid}/roles", json={"roles": ["ADMIN", "TEACHER"], "reason": "También dicta clases"})
+    assert r.status_code == 200, r.text
+    assert r.json()["roles"] == ["ADMIN", "TEACHER"] and r.json()["roleLabel"] == "Administrador + Docente"
+    t = mongo.teachers.find_one({"email": "vice@uets.edu.ec"})
+    superadmin.post(f"/superadmin/teachers/{t['_id']}/assignments", json={"course": "5to", "paralelo": "B", "subject": "Matemática"})
+    # sigue apareciendo en Administradores
+    assert any(x["id"] == uid for x in superadmin.get("/superadmin/users?role=staff").json()["rows"])
+    # entra con Google al panel del administrador y también al docente
+    a = Actor(client)
+    r = a.post("/auth/google", json={"credential": gtoken(email="vice@uets.edu.ec", sub="g-vice")})
+    assert r.status_code == 200 and r.json()["redirectTo"] == "/admin/dashboard" and r.json()["user"]["roles"] == ["ADMIN", "TEACHER"]
+    assert a.get("/requests").status_code == 200
+    assert a.get("/teacher/items").status_code == 200
+    assert a.get("/superadmin/users").status_code == 403
+    st = register_student(client)
+    st.post("/me/requests", json={"requestType": "proceso_mejora", "representativeLinkId": st.link_id, "payload": {"subjects": ["Matemática"]}})
+    assert len(a.get("/teacher/items").json()) == 1
+    # docente principal + administrador
+    r = superadmin.post(f"/superadmin/users/{uid}/roles", json={"roles": ["TEACHER"], "reason": "Ya no es vicerrectora"})
+    assert r.status_code == 200 and r.json()["roles"] == ["TEACHER"]
+    assert a.get("/requests").status_code in (401, 403)  # su sesión cambió de inicio: vuelve a ingresar
+    # no puede escalar a SUPERADMIN por esta vía ni darse roles a sí mismo
+    assert superadmin.post(f"/superadmin/users/{uid}/roles", json={"roles": ["SUPERADMIN"], "reason": "intento indebido"}).status_code == 400
+    me = superadmin.user["id"]
+    assert superadmin.post(f"/superadmin/users/{me}/roles", json={"roles": ["SUPERADMIN", "TEACHER"], "reason": "intento propio"}).status_code == 403
+
+
+def test_cierre_de_envios_no_bloquea_al_personal(client, superadmin, admin, google, aporte_activo, mongo):
+    importar(superadmin, exclude=["RUIZ CHACON BYRON GEOVANY"])
+    st = register_student(client)
+    body = {"requestType": "proceso_mejora", "representativeLinkId": st.link_id, "payload": {"subjects": ["Matemática"]}}
+    rid = st.post("/me/requests", json=body).json()["_id"]
+    # la administración cierra el envío (fechas ya pasadas)
+    r = admin.put("/system/submission-window", json={"start": "2026-01-01T00:00", "end": "2026-01-02T00:00"})
+    assert r.status_code == 200, r.text
+    assert st.post("/me/requests", json={**body, "payload": {"subjects": ["Inglés"]}}).status_code == 400
+    # el estudiante sigue entrando y viendo sus solicitudes
+    assert st.get("/me/requests").status_code == 200
+    # docente, administrador y SUPERADMIN siguen trabajando
+    t = docente(client, "juanpl@uets.edu.ec", "g-juan")
+    iid = t.get("/teacher/items").json()[0]["id"]
+    assert t.post("/teacher/items/track", json={"ids": [iid], "track": "programada", "scheduledAt": "2026-12-02T09:30"}).status_code == 200
+    assert t.post("/teacher/items/track", json={"ids": [iid], "track": "evaluado"}).status_code == 200
+    assert admin.get(f"/evaluations/request/{rid}").status_code == 200
+    assert superadmin.get("/superadmin/requests").status_code == 200

@@ -53,6 +53,8 @@ class Settings:
     allow_password_login: bool = False
     # El estudiante puede cancelar sus solicitudes (desactivado: la institución lo pidió así; lo hace la administración).
     student_can_cancel: bool = False
+    # Contraseña temporal al crear cuentas de personal (desactivado: el personal entra con Google; solo para pruebas).
+    staff_temp_password: bool = False
     # Los correos de estudiante terminan en "<sufijo>@dominio" (nombreapellido.est@uets.edu.ec).
     student_email_suffix: str = ".est"
     # ── Correo saliente (Google Workspace: smtp.gmail.com:587 con contraseña de aplicación) ──
@@ -171,6 +173,7 @@ def get_settings() -> Settings:
         google_client_id=(os.environ.get("GOOGLE_CLIENT_ID") or "").strip() or None,
         allow_password_registration=(os.environ.get("ALLOW_PASSWORD_REGISTRATION") or "true").lower() != "false",
         allow_password_login=(os.environ.get("ALLOW_PASSWORD_LOGIN") or "false").lower() in ("1", "true", "yes"),
+        staff_temp_password=(os.environ.get("STAFF_TEMP_PASSWORD") or "false").lower() in ("1", "true", "yes"),
         student_can_cancel=(os.environ.get("STUDENT_CAN_CANCEL") or "false").lower() in ("1", "true", "yes"),
         student_email_suffix=(os.environ.get("STUDENT_EMAIL_SUFFIX") or ".est").strip().lower(),
         **_mail_settings(),

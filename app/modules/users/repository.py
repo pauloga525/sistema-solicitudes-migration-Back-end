@@ -10,6 +10,17 @@ from app.shared.utilities.dates import utcnow
 
 ROLES = ("STUDENT", "TEACHER", "ADMIN", "SUPERADMIN")
 STAFF_ROLES = ("ADMIN", "SUPERADMIN")
+EXTRA_ROLES = ("TEACHER", "ADMIN")  # roles que se pueden sumar al rol principal (multirol)
+
+
+def effective_roles(u: dict[str, Any]) -> list[str]:
+    """Rol principal + roles adicionales (p. ej. un administrador que también es docente)."""
+    if u.get("role") == "STUDENT":
+        return ["STUDENT"]
+    extra = [r for r in (u.get("extraRoles") or []) if r in EXTRA_ROLES and r != u.get("role")]
+    return [u["role"], *dict.fromkeys(extra)]
+
+
 ROLE_HOME = {"SUPERADMIN": "/superadmin/dashboard", "ADMIN": "/admin/dashboard", "TEACHER": "/docente", "STUDENT": "/estudiante"}
 
 

@@ -45,9 +45,9 @@ def user_out(u: dict | AuthUser | None) -> dict | None:
     if u is None:
         return None
     if isinstance(u, AuthUser):
-        return {"id": u.user_id, "role": u.role, "email": u.email, "username": u.username_, "name": u.name,
+        return {"id": u.user_id, "role": u.role, "roles": u.roles, "email": u.email, "username": u.username_, "name": u.name,
                 "forcePasswordChange": u.force_password_change, "home": users.ROLE_HOME[u.role]}
-    return {"id": str(u["_id"]), "role": u["role"], "email": u.get("email"), "username": u.get("username"),
+    return {"id": str(u["_id"]), "role": u["role"], "roles": users.effective_roles(u), "email": u.get("email"), "username": u.get("username"),
             "name": u.get("name"), "forcePasswordChange": bool(u.get("forcePasswordChange")),
             "home": users.ROLE_HOME[u["role"]]}
 

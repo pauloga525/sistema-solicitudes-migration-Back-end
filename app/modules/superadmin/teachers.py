@@ -92,7 +92,11 @@ async def _link_user(teacher: dict[str, Any]) -> str:
         return "conflicto_estudiante"
     else:
         result = "vinculada"
-        await users.set_fields(u["_id"], {"teacherId": teacher["_id"]})
+        fields: dict[str, Any] = {"teacherId": teacher["_id"]}
+        if u["role"] in ("ADMIN", "SUPERADMIN") and "TEACHER" not in (u.get("extraRoles") or []):
+            # Personal administrativo que también dicta clases: suma el rol de docente (multirol).
+            fields["extraRoles"] = [*(u.get("extraRoles") or []), "TEACHER"]
+        await users.set_fields(u["_id"], fields)
     await db()["teachers"].update_one({"_id": teacher["_id"]}, {"$set": {"userId": u["_id"]}})
     await db()["access_requests"].update_many({"email": email, "status": "pending"},
                                               {"$set": {"status": "granted", "grantedRole": "TEACHER", "resolvedAt": utcnow()}})
@@ -194,11 +198,11 @@ async def _teacher(id_: str) -> dict[str, Any]:
 
 async def _detail(t: dict[str, Any]) -> dict[str, Any]:
     asg = await db()["teacher_assignments"].find({"teacherId": t["_id"], "active": True}).to_list(None)
-    u = await users.get(t["userId"], {"role": 1, "isActive": 1, "lastLoginAt": 1}) if t.get("userId") else None
+    u = await users.get(t["userId"], {"role": 1, "extraRoles": 1, "isActive": 1, "lastLoginAt": 1}) if t.get("userId") else None
     order = {c: i for i, c in enumerate(COURSES)}
     return to_json({"id": str(t["_id"]), "name": t.get("name"), "email": t.get("email"), "active": t.get("active", True),
                     "hasAccount": bool(t.get("userId")), "manual": bool(t.get("manual")),
-                    "account": {"id": str(u["_id"]), "role": u["role"], "isActive": u.get("isActive", True),
+                    "account": {"id": str(u["_id"]), "role": u["role"], "roles": users.effective_roles(u), "isActive": u.get("isActive", True),
                                 "lastLoginAt": u.get("lastLoginAt")} if u else None,
                     "assignments": sorted([{"course": a["course"], "paralelo": a["paralelo"], "subject": a["subject"],
                                             "specialty": a.get("specialty"), "manual": bool(a.get("manual"))} for a in asg],

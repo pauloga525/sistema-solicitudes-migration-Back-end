@@ -41,6 +41,11 @@ class AuthUser:
         return self.username_ or self.email or self.user_id
 
     @property
+    def roles(self) -> list[str]:
+        """Rol principal más los adicionales (multirol), según la base en la última revalidación."""
+        return list(self.claims.get("roles") or [self.role])
+
+    @property
     def oid(self) -> ObjectId:
         return ObjectId(self.user_id)
 
@@ -64,7 +69,8 @@ def user_fingerprint(user: dict[str, Any]) -> str:
 
 def build_claims(user: dict[str, Any], login_at: float | None = None) -> dict[str, Any]:
     now = time.time()
-    return {"sub": str(user["_id"]), "role": user["role"], "email": user.get("email"), "username": user.get("username"),
+    from app.modules.users.repository import effective_roles
+    return {"sub": str(user["_id"]), "role": user["role"], "roles": effective_roles(user), "email": user.get("email"), "username": user.get("username"),
             "name": user.get("name"), "fpc": bool(user.get("forcePasswordChange")),
             "fp": user_fingerprint(user), "sv": int(user.get("sessionVersion") or 0), "loginAt": login_at or now, "checkedAt": now}
 
@@ -147,7 +153,7 @@ def require_role(*roles: str):
     """Rol exacto verificado en el servidor (el frontend solo oculta opciones)."""
 
     async def dep(request: Request, user: AuthUser = Depends(active_user)) -> AuthUser:
-        if user.role not in roles:
+        if not set(user.roles) & set(roles):  # rol principal o adicional (multirol)
             raise AppError(403, "No autorizado", code="AUTH_FORBIDDEN")
         request.state.user = user
         return user
@@ -164,7 +170,7 @@ async def require_admin(request: Request) -> AuthUser:
     """Panel administrativo: ADMIN o SUPERADMIN. Sin sesión → 401 como el original."""
     user = await current_user(request)
     await _check_restrictions(user, False)
-    if user.role not in ("ADMIN", "SUPERADMIN"):
+    if not set(user.roles) & {"ADMIN", "SUPERADMIN"}:
         raise AppError(403, "No autorizado", code="AUTH_FORBIDDEN")
     request.state.user = user
     return user

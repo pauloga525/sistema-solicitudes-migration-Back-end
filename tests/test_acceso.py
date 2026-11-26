@@ -22,7 +22,7 @@ def solo_google(client, monkeypatch):
     from app.modules.auth import router as auth_router
     from app.modules.superadmin import users as sa_users
 
-    s = replace(config.get_settings(), google_client_id=CLIENT, allow_password_login=False)
+    s = replace(config.get_settings(), google_client_id=CLIENT, allow_password_login=False, staff_temp_password=False)
     monkeypatch.setattr(auth_router, "get_settings", lambda: s)
     monkeypatch.setattr(sa_users, "get_settings", lambda: s)
     client.app.state.google_key_resolver = lambda _t: KEY.public_key()
