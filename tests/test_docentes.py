@@ -387,6 +387,11 @@ def test_correo_al_representante_al_enviar(client, superadmin, aporte_activo, mo
     r = st.post("/me/requests", json={"requestType": "proceso_mejora", "representativeLinkId": st.link_id,
                                       "payload": {"subjects": ["Matemática", "Inglés"]}})
     assert r.status_code == 201
+    # recién enviada: ninguna materia tiene fecha ni el estudiante recibe aviso de evaluación
+    mine = st.get("/me/requests").json()["data"][0]
+    assert mine["evaluations"] == [] and st.get("/me/notifications").json() == []
+    assert all(t["track"] == "por_atender" and t.get("scheduledAt") is None
+               for t in mongo.teacher_tracking.find({"requestId": ObjectId(r.json()["_id"])}))
     m = mongo.email_outbox.find_one({"context.kind": "solicitud_creada"})
     assert m["to"] == [f"rep{VALID_REP_DNI}@uets.edu.ec"] and "Maria Jose Perez Lopez" in m["subject"]
     for txt in ("Maria Jose Perez Lopez", "5to de Básica, paralelo B", "Materias: Matemática, Inglés", r.json()["requestNumber"],
